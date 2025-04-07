@@ -96,6 +96,7 @@ export default function Home() {
           <div className="container text-center text-sm text-muted-foreground">
             Feedback Collector - Created by Sahil Tiwari -{" "}
             {new Date().getFullYear()}
+              <h4 className="text-green-500">Admin Password = 777777</h4>
           </div>
         </footer>
       </div>
