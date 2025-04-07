@@ -5,6 +5,7 @@ import FeedbackForm from "@/components/feedback-form";
 import FeedbackList from "@/components/feedback-list";
 import ThemeToggle from "@/components/theme-toggle";
 import { ThemeProvider } from "@/components/theme-provider";
+import "./globals.css";
 
 export default function Home() {
   const [showAdmin, setShowAdmin] = useState(false);
