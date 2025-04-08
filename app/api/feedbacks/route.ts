@@ -1,57 +1,30 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { db } from "@/lib/firebase-admin";
+import { v4 as uuidv4 } from "uuid";
 
-// Define TypeScript interfaces
 interface Feedback {
-  id: number;
+  id: string;
   name: string;
+  email: string;
   message: string;
   timestamp: string;
 }
 
-// Use /tmp directory for writable access in serverless environments
-const dataFilePath = "/tmp/feedback.json";
-
-// Read feedback data from file
-function readFeedbackData(): Feedback[] {
-  try {
-    if (!fs.existsSync(dataFilePath)) {
-      return [];
-    }
-
-    const data = fs.readFileSync(dataFilePath, "utf8");
-    return JSON.parse(data) as Feedback[];
-  } catch (error) {
-    console.error("Error reading feedback data:", error);
-    return [];
-  }
-}
-
-// Write feedback data to file
-function writeFeedbackData(data: Feedback[]): void {
-  try {
-    fs.writeFileSync(dataFilePath, JSON.stringify(data, null, 2), "utf8");
-  } catch (error) {
-    console.error("Error writing feedback data:", error);
-  }
-}
-
-// GET request: Fetch all feedback
 export async function GET() {
   try {
-    const feedbackData = readFeedbackData();
+    const snapshot = await db
+      .collection("feedbacks")
+      .orderBy("timestamp", "desc")
+      .get();
+    const feedbacks = snapshot.docs.map((doc) => doc.data() as Feedback);
 
-    // Sort feedback by timestamp (newest first)
-    feedbackData.sort(
-      (a: Feedback, b: Feedback) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
-
-    return NextResponse.json(feedbackData);
+    return NextResponse.json(feedbacks);
   } catch (error) {
-    console.error("Error retrieving feedback data:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("Error fetching feedbacks:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch feedbacks" },
+      { status: 500 }
+    );
   }
 }
 
@@ -68,17 +41,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const feedbackData = readFeedbackData();
     const newFeedback: Feedback = {
-      id: Date.now(),
+      id: Date.now().toString(), // Ensure it's a string,
       name,
+      email: "",
       message,
       timestamp: new Date().toISOString(),
     };
-
-    feedbackData.push(newFeedback);
-    writeFeedbackData(feedbackData);
-
+    
+    await db.collection("feedbacks").doc(newFeedback.id).set(newFeedback);
+    
     return NextResponse.json({
       message: "Feedback submitted successfully!",
       feedback: newFeedback,

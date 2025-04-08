@@ -1,83 +1,54 @@
-import { NextResponse } from "next/server"
-import fs from "fs"
-import path from "path"
-import { v4 as uuidv4 } from "uuid"
-
-// Define the data file path
-const dataFilePath = path.join(process.cwd(), "data", "feedback.json")
-
-// Ensure the data directory exists
-function ensureDirectoryExists() {
-  const dataDir = path.join(process.cwd(), "data")
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true })
-  }
-
-  // Create empty feedback.json if it doesn't exist
-  if (!fs.existsSync(dataFilePath)) {
-    fs.writeFileSync(dataFilePath, JSON.stringify([]), "utf8")
-  }
-}
-
-// Read feedback data from file
-function readFeedbackData() {
-  try {
-    ensureDirectoryExists()
-    const data = fs.readFileSync(dataFilePath, "utf8")
-    return JSON.parse(data)
-  } catch (error) {
-    console.error("Error reading feedback data:", error)
-    return []
-  }
-}
-
-// Write feedback data to file
-function writeFeedbackData(data: any[]) {
-  try {
-    ensureDirectoryExists()
-    fs.writeFileSync(dataFilePath, JSON.stringify(data, null, 2), "utf8")
-    return true
-  } catch (error) {
-    console.error("Error writing feedback data:", error)
-    return false
-  }
-}
+import { NextResponse } from "next/server";
+import { db, checkFirestoreConnection } from "@/lib/firebase-admin";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    // Check Firestore connection first
+    await checkFirestoreConnection();
 
-    // Validate required fields
-    if (!body.name || !body.email || !body.message) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    const feedback = await request.json();
+
+    // Ensure feedback.id is a valid non-empty string; generate one if missing
+    if (
+      !feedback.id ||
+      typeof feedback.id !== "string" ||
+      feedback.id.trim() === ""
+    ) {
+      feedback.id = Date.now().toString();
     }
 
-    // Create new feedback entry
-    const newFeedback = {
-      id: uuidv4(),
-      name: body.name,
-      email: body.email,
-      message: body.message,
-      timestamp: body.timestamp || new Date().toISOString(),
+    // Add retry logic for Firestore operation
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        await db.collection("feedbacks").doc(feedback.id).set(feedback);
+        break;
+      } catch (error: any) {
+        if (error.code === 7 && retries > 1) {
+          // Wait for 2 seconds before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          retries--;
+          continue;
+        }
+        throw error;
+      }
     }
 
-    // Read existing feedback data
-    const feedbackData = readFeedbackData()
+    return NextResponse.json(
+      { message: "Feedback submitted successfully" },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    console.error("Error submitting feedback:", error);
 
-    // Add new feedback
-    feedbackData.push(newFeedback)
+    const errorMessage =
+      error.code === 7
+        ? "Firestore service is not enabled. Please contact support."
+        : "Failed to submit feedback. Please try again later.";
 
-    // Write updated data back to file
-    const success = writeFeedbackData(feedbackData)
-
-    if (!success) {
-      return NextResponse.json({ error: "Failed to save feedback" }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, feedback: newFeedback }, { status: 201 })
-  } catch (error) {
-    console.error("Error handling feedback submission:", error)
-    return NextResponse.json({ error: "Server error" }, { status: 500 })
+    return NextResponse.json(
+      { error: errorMessage },
+      { status: error.code === 7 ? 503 : 500 }
+    );
   }
 }
-
